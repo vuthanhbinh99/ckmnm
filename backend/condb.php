@@ -1,9 +1,9 @@
 <?php
 
 $host = 'fdb1031.runhosting.com';
-$db   = '4717737_ckmnm';
-$user = '4717737_ckmnm'; // Thay bằng username của bạn
-$pass = 'Danhfa123.';     // Thay bằng password của bạn
+$db   = '4714577_qlmh';
+$user = '4714577_qlmh'; // Thay bằng username của bạn
+$pass = 'Rosie_are_Rosie1';     // Thay bằng password của bạn
 $charset = 'utf8mb4';
 
 $dsn = "mysql:host=$host;dbname=$db;charset=$charset";

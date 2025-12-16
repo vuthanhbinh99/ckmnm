@@ -21,7 +21,7 @@ if (!isset($_SESSION['cart'])) {
 $action = $_GET['action'] ?? 'view'; 
 
 // ===================================================================
-// 1. XỬ LÝ HÀNH ĐỘNG THÊM SẢN PHẨM (action=add) - Không thay đổi
+// 1. XỬ LÝ HÀNH ĐỘNG THÊM SẢN PHẨM (action=add) - Không thay đổi qweert
 // ===================================================================
 if ($action === 'add' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $product_id = filter_input(INPUT_POST, 'product_id', FILTER_VALIDATE_INT);

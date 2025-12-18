@@ -692,7 +692,7 @@
 
     <script>
         // *** CẤU HÌNH API ***
-        const CART_API_URL = '/api/cart';
+        const CART_API_URL = 'http://localhost:8080/cart_api.php';
 
         // ===================================================================
         // HÀM TIỆN ÍCH
@@ -710,34 +710,70 @@
         // ===================================================================
         // HÀM RENDER GIỎ HÀNG BẰNG JS
         // ===================================================================
-
-        function renderCart(cartData) {
+         function renderCart(data) {
             const cartDisplay = document.getElementById('cartDisplay');
             let html = '';
 
-            if (cartData.total_items === 0 || cartData.cart_items.length === 0) {
-                // Hiển thị khi giỏ hàng trống
+            // Kiểm tra cấu trúc dữ liệu trả về
+            console.log('Cart data received:', data);
+
+            // Xử lý các trường hợp dữ liệu có thể trả về
+            let cartItems = [];
+            let totalItems = 0;
+            let grandTotal = 0;
+
+            // Trường hợp 1: Dữ liệu có cấu trúc từ API mới
+            if (data.cart_items !== undefined) {
+                cartItems = data.cart_items || [];
+                totalItems = data.total_items || 0;
+                grandTotal = data.grand_total || 0;
+            } 
+            // Trường hợp 2: Dữ liệu trả về trực tiếp là mảng
+            else if (Array.isArray(data)) {
+                cartItems = data;
+                totalItems = cartItems.reduce((sum, item) => sum + (item.quantity || 0), 0);
+                grandTotal = cartItems.reduce((sum, item) => sum + (item.price * item.quantity || 0), 0);
+            }
+            // Trường hợp 3: Dữ liệu có data.data
+            else if (data.data && Array.isArray(data.data)) {
+                cartItems = data.data;
+                totalItems = cartItems.reduce((sum, item) => sum + (item.quantity || 0), 0);
+                grandTotal = cartItems.reduce((sum, item) => sum + (item.price * item.quantity || 0), 0);
+            }
+
+            // Kiểm tra giỏ hàng trống
+            if (!cartItems || cartItems.length === 0) {
                 html = `
                     <div class="empty-cart">
                         <div class="empty-cart-icon">🛍️</div>
                         <h2>Giỏ hàng của bạn đang trống!</h2>
                         <p>Hãy thêm các sản phẩm tuyệt vời vào giỏ ngay.</p>
+                        <a href="products.html" class="btn btn-checkout" style="display: inline-block; margin-top: 20px;">
+                            Khám Phá Sản Phẩm
+                        </a>
                     </div>
                 `;
             } else {
                 // Tạo bảng giỏ hàng
-                let tableRows = cartData.cart_items.map(item => {
-                    const subtotal = item.price * item.quantity;
+                let tableRows = cartItems.map(item => {
+                    const subtotal = (item.price || 0) * (item.quantity || 0);
                     return `
                         <tr>
-                            <td class="product-name">${item.name}</td>
-                            <td class="price">${formatPrice(item.price)}</td>
+                            <td class="product-name">${item.name || 'N/A'}</td>
+                            <td class="price">${formatPrice(item.price || 0)}</td>
                             <td>
-                                <input type="number" class="quantity-input" value="${item.quantity}" min="1" data-product-id="${item.id}" onchange="updateQuantity(${item.id}, this.value)">
+                                <input type="number" 
+                                       class="quantity-input" 
+                                       value="${item.quantity || 1}" 
+                                       min="1" 
+                                       data-product-id="${item.id}" 
+                                       onchange="updateQuantity(${item.id}, this.value)">
                             </td>
                             <td class="subtotal">${formatPrice(subtotal)}</td>
                             <td>
-                                <button class="btn btn-remove" style="background-color: #e74c3c; color: white; padding: 5px 10px;" onclick="removeItem(${item.id})">Xóa</button>
+                                <button class="btn btn-remove" onclick="removeItem(${item.id})">
+                                    Xóa
+                                </button>
                             </td>
                         </tr>
                     `;
@@ -760,13 +796,13 @@
                     </table>
 
                     <div class="cart-summary">
-                        <p>Tạm Tính: <span>${formatPrice(cartData.grand_total)}</span></p>
-                        <p class="grand-total">Tổng Cộng: <span>${formatPrice(cartData.grand_total)}</span></p>
+                        <p>Tổng Số Lượng: <span>${totalItems} sản phẩm</span></p>
+                        <p class="grand-total">Tổng Cộng: <span>${formatPrice(grandTotal)}</span></p>
                     </div>
 
                     <div class="cart-actions">
                         <a href="products.html" class="btn btn-back">← Tiếp Tục Mua Sắm</a>
-                        <button class="btn btn-checkout">Tiến Hành Thanh Toán →</button>
+                        <button class="btn btn-checkout" onclick="checkout()">Tiến Hành Thanh Toán →</button>
                     </div>
                 `;
             }
@@ -782,7 +818,9 @@
             document.getElementById('cartLoading').style.display = 'block';
 
             // Gọi API với action=view
-            fetch(`${CART_API_URL}?action=view`)
+            fetch(`${CART_API_URL}?action=view`,{
+                credentials: 'include'
+            })
                 .then(response => {
                     if (!response.ok) {
                         throw new Error('Lỗi mạng khi tải giỏ hàng.');
@@ -821,6 +859,7 @@
             formData.append('product_id', productId);
 
             fetch(`${CART_API_URL}?action=remove`, {
+                credentials: 'include',
                 method: 'POST',
                 body: formData
             })
@@ -850,6 +889,7 @@
             formData.append('quantity', quantity);
 
             fetch(`${CART_API_URL}?action=update`, {
+                credentials: 'include',
                 method: 'POST',
                 body: formData
             })

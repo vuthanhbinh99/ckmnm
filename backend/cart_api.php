@@ -1,131 +1,195 @@
 <?php
-// Thiết lập cho phép CORS nếu frontend và backend khác tên miền
-header('Access-Control-Allow-Origin: *'); 
-header('Content-Type: application/json');
+// ===================================================================
+// CẤU HÌNH CORS VÀ SESSION - QUAN TRỌNG!
+// ===================================================================
 
-session_start();
-// Sử dụng file kết nối cơ sở dữ liệu để đảm bảo môi trường hoạt động
-require 'condb.php'; 
+// Cho phép truy cập từ frontend
+$allowed_origin = 'http://localhost:3000';
 
-// Hàm tiện ích để trả về phản hồi JSON
-function respond($status, $data = [], $message = null) {
-    echo json_encode(['status' => $status, 'message' => $message, 'data' => $data]);
+header("Access-Control-Allow-Origin: $allowed_origin");
+header("Access-Control-Allow-Credentials: true");
+header("Access-Control-Allow-Methods: GET, POST, OPTIONS");
+header("Access-Control-Allow-Headers: Content-Type");
+header("Content-Type: application/json; charset=UTF-8");
+
+// Xử lý preflight request
+if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
+    http_response_code(200);
     exit();
 }
 
-// Khởi tạo giỏ hàng nếu chưa tồn tại
+// Cấu hình session cookie
+session_set_cookie_params([
+    'lifetime' => 0,
+    'path' => '/',
+    'domain' => 'localhost',
+    'secure' => false,
+    'httponly' => true,
+    'samesite' => 'Lax'
+]);
+
+// Bắt đầu session
+session_start();
+
+// Debug log
+error_log('=== CART API DEBUG ===');
+error_log('Session ID: ' . session_id());
+error_log('Request Method: ' . $_SERVER['REQUEST_METHOD']);
+error_log('Action: ' . ($_GET['action'] ?? 'none'));
+
+// Kết nối database
+require 'condb.php'; 
+
+// ===================================================================
+// HÀM TIỆN ÍCH
+// ===================================================================
+
+function respond($status, $message = null, $cart_items = [], $total_items = 0, $grand_total = 0) {
+    $response = [
+        'status' => $status,
+        'message' => $message,
+        'cart_items' => $cart_items,
+        'total_items' => $total_items,
+        'grand_total' => $grand_total
+    ];
+    
+    error_log('Response: ' . json_encode($response));
+    echo json_encode($response);
+    exit();
+}
+
+// Khởi tạo giỏ hàng nếu chưa có
 if (!isset($_SESSION['cart'])) {
     $_SESSION['cart'] = [];
+    error_log('Initialized empty cart');
 }
+
+error_log('Current cart: ' . json_encode($_SESSION['cart']));
 
 $action = $_GET['action'] ?? 'view'; 
 
 // ===================================================================
-// 1. XỬ LÝ HÀNH ĐỘNG THÊM SẢN PHẨM (action=add) - Không thay đổi qweert
+// 1. THÊM SẢN PHẨM VÀO GIỎ (action=add)
 // ===================================================================
 if ($action === 'add' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $product_id = filter_input(INPUT_POST, 'product_id', FILTER_VALIDATE_INT);
     $quantity = 1; 
 
     if (!$product_id) {
-        respond('error', [], 'Thiếu hoặc ID sản phẩm không hợp lệ.');
+        respond('error', 'Thiếu hoặc ID sản phẩm không hợp lệ.');
     }
 
     try {
-        // Lấy thông tin chi tiết sản phẩm từ database
         $stmt = $pdo->prepare('SELECT id, name, price FROM product WHERE id = ?');
         $stmt->execute([$product_id]);
         $product = $stmt->fetch(PDO::FETCH_ASSOC);
 
         if (!$product) {
-            respond('error', [], 'Sản phẩm không tồn tại trong cơ sở dữ liệu.');
+            respond('error', 'Sản phẩm không tồn tại.');
         }
 
-        // Thêm hoặc tăng số lượng trong PHP Session
+        // Thêm vào session
         if (isset($_SESSION['cart'][$product_id])) {
             $_SESSION['cart'][$product_id]['quantity'] += $quantity;
         } else {
             $_SESSION['cart'][$product_id] = [
-                'id' => $product['id'],
+                'id' => (int)$product['id'],
                 'name' => $product['name'],
                 'price' => (float)$product['price'], 
                 'quantity' => $quantity
             ];
         }
 
-        respond('success', ['cart_item' => $_SESSION['cart'][$product_id]], 'Thêm vào giỏ hàng thành công.');
+        error_log('Cart after add: ' . json_encode($_SESSION['cart']));
+
+        // Tính toán lại
+        $cart = $_SESSION['cart'];
+        $totalItems = array_sum(array_column($cart, 'quantity'));
+        $grandTotal = array_sum(array_map(function($item) {
+            return $item['price'] * $item['quantity'];
+        }, $cart));
+
+        respond('success', 'Thêm vào giỏ hàng thành công.', array_values($cart), $totalItems, $grandTotal);
 
     } catch (PDOException $e) {
-        error_log('Database error during cart add: ' . $e->getMessage());
-        respond('error', [], 'Lỗi hệ thống khi truy vấn sản phẩm.');
+        error_log('Database error: ' . $e->getMessage());
+        respond('error', 'Lỗi hệ thống khi truy vấn sản phẩm.');
     }
 }
 
 // ===================================================================
-// 3. XỬ LÝ HÀNH ĐỘNG CẬP NHẬT SỐ LƯỢNG (action=update)
+// 2. XEM GIỎ HÀNG (action=view)
+// ===================================================================
+if ($action === 'view' && $_SERVER['REQUEST_METHOD'] === 'GET') {
+    error_log('View cart - Session cart: ' . json_encode($_SESSION['cart']));
+
+    $cart = $_SESSION['cart'];
+
+    if (empty($cart)) {
+        respond('success', 'Giỏ hàng trống', [], 0, 0);
+    }
+
+    $totalItems = array_sum(array_column($cart, 'quantity'));
+    $grandTotal = array_sum(array_map(function($item) {
+        return $item['price'] * $item['quantity'];
+    }, $cart));
+
+    respond('success', 'Lấy giỏ hàng thành công', array_values($cart), $totalItems, $grandTotal);
+}
+
+// ===================================================================
+// 3. CẬP NHẬT SỐ LƯỢNG (action=update)
 // ===================================================================
 if ($action === 'update' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $product_id = filter_input(INPUT_POST, 'product_id', FILTER_VALIDATE_INT);
     $new_quantity = filter_input(INPUT_POST, 'quantity', FILTER_VALIDATE_INT);
 
     if (!$product_id || $new_quantity === false || $new_quantity < 1) {
-        respond('error', [], 'Dữ liệu cập nhật không hợp lệ.');
+        respond('error', 'Dữ liệu cập nhật không hợp lệ.');
     }
     
     if (isset($_SESSION['cart'][$product_id])) {
         $_SESSION['cart'][$product_id]['quantity'] = $new_quantity;
-        respond('success', $_SESSION['cart'][$product_id], 'Cập nhật số lượng thành công.');
+        
+        // Tính toán lại
+        $cart = $_SESSION['cart'];
+        $totalItems = array_sum(array_column($cart, 'quantity'));
+        $grandTotal = array_sum(array_map(function($item) {
+            return $item['price'] * $item['quantity'];
+        }, $cart));
+
+        respond('success', 'Cập nhật số lượng thành công.', array_values($cart), $totalItems, $grandTotal);
     } else {
-        respond('error', [], 'Sản phẩm không có trong giỏ hàng.');
+        respond('error', 'Sản phẩm không có trong giỏ hàng.');
     }
 }
 
 // ===================================================================
-// 4. XỬ LÝ HÀNH ĐỘNG XÓA SẢN PHẨM (action=remove)
+// 4. XÓA SẢN PHẨM (action=remove)
 // ===================================================================
 if ($action === 'remove' && $_SERVER['REQUEST_METHOD'] === 'POST') {
     $product_id = filter_input(INPUT_POST, 'product_id', FILTER_VALIDATE_INT);
 
     if (!$product_id) {
-        respond('error', [], 'Thiếu hoặc ID sản phẩm không hợp lệ.');
+        respond('error', 'Thiếu hoặc ID sản phẩm không hợp lệ.');
     }
 
     if (isset($_SESSION['cart'][$product_id])) {
         unset($_SESSION['cart'][$product_id]);
-        respond('success', [], 'Đã xóa sản phẩm khỏi giỏ hàng.');
+        
+        // Tính toán lại
+        $cart = $_SESSION['cart'];
+        $totalItems = empty($cart) ? 0 : array_sum(array_column($cart, 'quantity'));
+        $grandTotal = empty($cart) ? 0 : array_sum(array_map(function($item) {
+            return $item['price'] * $item['quantity'];
+        }, $cart));
+
+        respond('success', 'Đã xóa sản phẩm khỏi giỏ hàng.', array_values($cart), $totalItems, $grandTotal);
     } else {
-        respond('error', [], 'Sản phẩm không có trong giỏ hàng.');
+        respond('error', 'Sản phẩm không có trong giỏ hàng.');
     }
 }
 
-
-// ===================================================================
-// 2. XỬ LÝ HÀNH ĐỘNG XEM GIỎ HÀNG (action=view HOẶC MẶC ĐỊNH) - Không thay đổi
-// ===================================================================
-if ($action === 'view' && $_SERVER['REQUEST_METHOD'] === 'GET') {
-    $cart = $_SESSION['cart'];
-
-    // Tính toán tổng số lượng và tổng tiền
-    $totalItems = array_sum(array_column($cart, 'quantity'));
-    $grandTotal = array_sum(array_map(function($item) {
-        return $item['price'] * $item['quantity'];
-    }, $cart));
-
-    // Dữ liệu sẽ trả về cho frontend
-    $response = [
-        'status' => 'success',
-        'cart_items' => array_values($cart), 
-        'total_items' => $totalItems,
-        'grand_total' => $grandTotal
-    ];
-
-    echo json_encode($response);
-    exit;
-}
-
-// Trường hợp không có action nào khớp
-if (!in_array($action, ['add', 'view', 'update', 'remove'])) {
-    respond('error', [], 'Hành động không hợp lệ.');
-}
-
+// Hành động không hợp lệ
+respond('error', 'Hành động không hợp lệ.');
 ?>
